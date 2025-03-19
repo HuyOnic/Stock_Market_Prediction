@@ -1,0 +1,13 @@
+#python==3.12.9
+# pytorch==2.6.0
+SQLAlchemy==2.0.39 
+# numpy==2.2.4
+dotenv==0.9.9
+matplotlib==3.10.1 
+xgboost==3.0.0 
+pandas==2.2.3 
+catboost==1.2.7 
+scikit-learn==1.6.1 
+lightgbm==4.6.0 
+optuna==2.10.0
+psycopg2-binary
