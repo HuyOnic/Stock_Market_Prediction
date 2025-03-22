@@ -290,6 +290,58 @@ class FinancialDataset(Dataset):
                 torch.tensor(self.close_prices[idx], dtype=torch.long)
                 )
 
+class SequenceFinancialDataset(Dataset):
+    def __init__(self, data: pd.DataFrame, window_size: int = 60, seq_length: int = 1000, step_minutes=STEP_MINUTES):
+        self.data = data
+        self.window_size = window_size
+        self.seq_length = seq_length
+        self.prepare_sequence_data()
+
+    def prepare_sequence_data(self):
+        print("Preparing Sequence Dataset...")
+        time_data = pd.to_datetime(self.data["time"])
+        # ✅ Chỉ giữ các mốc thời gian cách nhau STEP_MINUTES từ đầu phiên
+        start_of_session = time_data.dt.normalize() + pd.Timedelta(hours=START_HOUR)
+        # valid_indices = (time_data - start_of_session).dt.total_seconds() % (step_minutes * 60) == 0
+        valid_indices = np.ones(len(time_data), dtype=bool)  # Giữ tất cả các mốc thời gian
+        filtered_indices = np.where(valid_indices)[0]  # Lấy index của các điểm cần dự báo
+
+        self.X_short_term = []
+        self.labels = []
+
+        short_term_features = self.data[SHORT_FEATURES].values
+        label_data = self.data.filter(regex=r"^target_\d+$").values
+        for i in filtered_indices:
+            # ✅ Lấy cửa sổ dữ liệu `window_size` bước về trước cho short-term features
+            start_idx = max(0, i - self.window_size + 1)
+            short_term_window = short_term_features[start_idx:i + 1]
+            # Nếu thiếu dữ liệu ở đầu, pad bằng 0
+            if len(short_term_window) < self.window_size:
+                pad_length = self.window_size - len(short_term_window)
+                short_term_window = np.pad(short_term_window, ((pad_length, 0), (0, 0)), mode='constant')
+            # Lưu lại các giá trị vào danh sách
+            self.X_short_term.append(short_term_window)
+            self.labels.append(np.where(label_data[i] < 0, -1, np.where(label_data[i] > 0, 1, 0)))
+
+        self.X_long_term = self.data[LONG_FEATURES].iloc[valid_indices]
+        self.y = self.data.filter(regex=r"^target_close_\d+$").iloc[valid_indices]
+        self.masks = self.data.filter(regex=r"^target_\d+$").iloc[valid_indices]
+        self.percentages = self.data.filter(regex=r"^target_pct_\d+$").iloc[valid_indices]
+        self.trade_dates = self.data["trade_date_x"].iloc[valid_indices]
+        self.sample_times = self.data["time"].iloc[valid_indices]
+        self.close_prices = self.data["close"].iloc[valid_indices]
+    
+    def __len__(self):
+        return len(self.data)-self.seq_length
+    
+    def __getitem__(self, index):
+        return torch.tensor(np.array(self.X_short_term[index:index+self.seq_length]), dtype=torch.float32), \
+                torch.tensor(self.X_long_term.iloc[index:index+self.seq_length].values, dtype=torch.float32), \
+                torch.tensor(self.y.iloc[index:index+self.seq_length].values, dtype=torch.float32), \
+                torch.tensor(self.masks.iloc[index:index+self.seq_length].values, dtype=torch.float32), \
+                torch.tensor(self.percentages.iloc[index:index+self.seq_length].values, dtype=torch.float32), \
+                torch.tensor(np.array(self.labels[index:index+self.seq_length]), dtype=torch.long), \
+                torch.tensor(self.close_prices.iloc[index:index+self.seq_length].values, dtype=torch.long)
 
 ##############################################
 # Scaling
@@ -318,8 +370,7 @@ def get_train_val_test():
     data = load_data(load_from_db=False, csv_path="data/all_data.csv")
     # data = load_data(load_from_db=False)
 
-    # Fill NaN values with 0
-    data.fillna(0, inplace=True)
+    #data_preprocessing
 
     dataset = FinancialDataset(data, window_size=30)
 
@@ -344,10 +395,6 @@ def get_train_val_test():
     train_indices = [i for i, d in enumerate(dataset.sample_dates) if d in train_dates]
     val_indices = [i for i, d in enumerate(dataset.sample_dates) if d in val_dates]
     test_indices = [i for i, d in enumerate(dataset.sample_dates) if d in test_dates]
-
-    train_dataset = Subset(dataset, train_indices)
-    val_dataset = Subset(dataset, val_indices)
-    test_dataset = Subset(dataset, test_indices)
 
     # scaler = compute_scalers(train_dataset)
     #

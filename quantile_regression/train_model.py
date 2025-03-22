@@ -14,7 +14,7 @@ def train_model(model_name):
     # 1. Load Data
     ##############################################
     _, train_dataset, val_dataset, test_dataset, _, _, _ = get_train_val_test()
-    
+    print(len(train_dataset[0][1]))
     # Mô hình
     model_classes = {
         "lstm": LSTMQuantileRegressor,

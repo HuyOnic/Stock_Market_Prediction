@@ -1,2 +1,5 @@
 *.pkl
 data
+*.csv
+*.ipynb
+test.py

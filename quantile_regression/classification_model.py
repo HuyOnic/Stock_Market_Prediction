@@ -64,7 +64,7 @@ class PriceClassifier(PricePrediction):
         # Chuyển label từ -10 đến 10 thành index từ 0 đến 20
         self.label_train = self.label_train + num_classes//2
         self.label_val = self.label_val + num_classes//2
-        self.label_test = self.label_test + num_classes//2
+        self.label_test = self.label_test + num_classes//2        
 
 
 class NNClassifier(PricePrediction):
