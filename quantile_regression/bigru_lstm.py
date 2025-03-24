@@ -38,10 +38,10 @@ class BiGRU_LSTM_Clasiifier():
         # val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, drop_last=False)
         # test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, drop_last=False)
         #CONFIG HYPER PARAMS
-        num_epochs = 200
+        num_epochs = 250
         seq_length = 1000
         progress_bar = tqdm(range(num_epochs))
-        self.past_x_long = torch.stack([train_dataset[idx][1] for idx in range(seq_length)]) #Load last x_long for inference
+        self.past_x_long = train_dataset[len(train_dataset)][1] #Save last x_long for inference
         if model_name.lower()=='bigru_lstm':
             model = BiGRU_LSTM(input_size=input_size,
                                hidden_bigru_size=hidden_bigru_size,
@@ -75,7 +75,7 @@ class BiGRU_LSTM_Clasiifier():
                 epoch_loss = running_loss/(batch_idx+1)
                 running_loss=0
                 progress_bar.set_postfix(loss=f"{epoch_loss:.4f}")
-                if epoch%5 == 0:
+                if epoch%10 == 0:
                     #Saving Model each 5 epochs
                     os.makedirs("exps", exist_ok=True)
                     torch.save({"weights": model,
@@ -83,6 +83,7 @@ class BiGRU_LSTM_Clasiifier():
             self.models.append({"weights": model,
                                 "x_past_long": self.past_x_long})
             break
+        os.makedirs("exps", exist_ok=True)
         torch.save(self.models, f"exps/bigru_lstm_all_models.pt")
         print("Training Completed")
     
