@@ -41,9 +41,9 @@ def train_model(model_name):
 
 
 if __name__ == "__main__":
-    # parser = argparse.ArgumentParser(description="Train a quantile regression model.")
-    # parser.add_argument("--model", type=str, required=True,help="Model type:lstm, gru, cnn, rnn , dfae")
-    # args = parser.parse_args()
-    model_name = "bigru_lstm"
-    train_model(model_name)
+    parser = argparse.ArgumentParser(description="Train a quantile regression model.")
+    parser.add_argument("--model", type=str, required=True,help="Model type:lstm, gru, cnn, rnn , dfae")
+    args = parser.parse_args()
+    # model_name = "bigru_lstm"
+    train_model(args.model)
 

@@ -26,11 +26,10 @@ from sklearn.metrics import precision_score
 import datetime
 import json
 
-
 # Get the absolute path of the dataset directory
 dataset_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../dataset"))
 sys.path.append(dataset_path)
-
+sys.path.append(os.getcwd())
 from features_cal_tg_and_step import label_to_percent
 from features_get_encoded_feature_name import get_origin_feature_name
 

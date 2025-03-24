@@ -95,7 +95,6 @@ LONG_FEATURES = (['f45', 'f48', 'f47'] +
                  )
 
 ALL_NEEDED_FEATURES = ["time", "trade_date"] + list(set(SHORT_FEATURES + LONG_FEATURES)) + ["target_0", "target_1", "target_2", "target_3", "target_4", "target_5", "target_6", "target_7", "target_8", "target_9", "target_10", "target_11", "target_12", "target_13", "target_14", "target_15", "target_16"] + [f"target_close_{i}" for i in range(17)] + [f"target_pct_{i}" for i in range(17)]
-
 # LONG_FEATURES += EOD_FEATURES
 
 # print (len(TIME_FEATURES), len(TA_FEATURES))
@@ -379,17 +378,18 @@ def transform_min_max_scalers(df: pd.DataFrame, scaler_path: str='scaler/min_max
 ##############################################
 # Load Train/Val/Test
 ##############################################
-def get_train_val_test(num_train_day: int=120, num_val_day: int=30, num_test_day: int=30):
+def get_train_val_test(num_train_day: int=120, num_val_day: int=30, num_test_day: int=30, seq_length:int =1000):
     # data = pd.read_csv('D:\Quant_Prj_Goline\processed_data\OHLC_VN30F1M_processed.csv')
     # data = pd.read_csv('../../data/all_data.csv')
     # data = pd.read_csv('../../data/all_data.csv', nrows=1000)
 
-    data = load_data(load_from_db=False, csv_path="data/all_data.csv")
+    data = load_data(load_from_db=False, csv_path="data/all_data.csv") #pandas dataframe
     # data = load_data(load_from_db=False)
     data.fillna(0, inplace=True)
     zero_cols = data[LONG_FEATURES].columns[data[LONG_FEATURES].sum(axis=0)==0].tolist()
-    selected_long_features = list(filter(lambda nonzero: nonzero not in zero_cols, LONG_FEATURES))
 
+    SELECTED_LONG_FEATURES = list(filter(lambda nonzero: nonzero not in zero_cols, LONG_FEATURES))
+    print(SELECTED_LONG_FEATURES)
     if 'time' in data.columns:
         data.index = pd.to_datetime(data['time'])
     last_date = data.index[-1]
@@ -406,9 +406,9 @@ def get_train_val_test(num_train_day: int=120, num_val_day: int=30, num_test_day
     val_df.loc[:,LONG_FEATURES] = pd.DataFrame(scaler.transform(val_df.loc[:,LONG_FEATURES]), index=val_df.index, columns=val_df[LONG_FEATURES].columns)
     test_df.loc[:,LONG_FEATURES] = pd.DataFrame(scaler.transform(test_df.loc[:,LONG_FEATURES]), index=test_df.index, columns=test_df[LONG_FEATURES].columns)
 
-    train_dataset = SequenceFinancialDataset(train_df, selected_long_features=selected_long_features)
-    val_dataset = SequenceFinancialDataset(val_df, selected_long_features=selected_long_features)
-    test_dataset = SequenceFinancialDataset(test_df, selected_long_features=selected_long_features)
+    train_dataset = SequenceFinancialDataset(train_df, selected_long_features=SELECTED_LONG_FEATURES)
+    val_dataset = SequenceFinancialDataset(val_df, selected_long_features=SELECTED_LONG_FEATURES)
+    test_dataset = SequenceFinancialDataset(test_df, selected_long_features=SELECTED_LONG_FEATURES)
 
     print(f"Train: From {train_start_date} to {val_start_date} ({num_train_day} days)")
     print(f"Validation: {val_start_date} to {test_start_date} ({num_val_day} days)") 

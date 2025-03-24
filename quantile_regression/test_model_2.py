@@ -17,6 +17,7 @@ from features_cal_tg_and_step import label_to_percent
 from regression_model import *
 from classification_model import *
 from svm import *
+from bigru_lstm import BiGRU_LSTM_Clasiifier
 ##############################################
 # 1. Load the trained model
 ##############################################
@@ -26,10 +27,11 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 #
 # model = XGBoostClassificationModel.load_model("best_classification_model.pkl").to(device)
 
-model = LightGBMClassifier.load_model("best_lgb_model_2.pkl").to(device)
+# model = LightGBMClassifier.load_model("best_lgb_model_2.pkl").to(device)
 # model = XGBoostClassifier.load_model("best_model.pkl").to(device)
-model.eval()
 
+model = BiGRU_LSTM_Clasiifier()
+model.load_model("exps/bigru_lstm_all_models.pt")
 # model = EnsembleClassifier.load_model("best_ensemble_model.pkl").to(device)
 # model.eval()
 
@@ -45,10 +47,12 @@ test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=Fa
 
 # # Print classification report:
 # # model.evaluate(dataset, train_indices)
-model.evaluate(dataset, val_indices)
-model.evaluate(dataset, test_indices)
-model.evaluate_high_confidence(dataset, val_indices)
-model.evaluate_high_confidence(dataset, test_indices)
+# model.evaluate(dataset, val_indices)
+# model.evaluate(dataset, test_indices)
+# model.evaluate_high_confidence(dataset, val_indices)
+# model.evaluate_high_confidence(dataset, test_indices)
+model.evaluate(val_dataset)
+model.evaluate(test_dataset)
 exit()
 
 # # Print classification report:
