@@ -3,7 +3,7 @@ import pandas as pd
 import torch
 from torch.utils.data import Dataset, Subset
 from datetime import timedelta
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
 import sys, os 
 sys.path.append(os.getcwd())
 from database_utils import get_engine
@@ -95,7 +95,6 @@ LONG_FEATURES = (['f45', 'f48', 'f47'] +
                  )
 
 ALL_NEEDED_FEATURES = ["time", "trade_date"] + list(set(SHORT_FEATURES + LONG_FEATURES)) + ["target_0", "target_1", "target_2", "target_3", "target_4", "target_5", "target_6", "target_7", "target_8", "target_9", "target_10", "target_11", "target_12", "target_13", "target_14", "target_15", "target_16"] + [f"target_close_{i}" for i in range(17)] + [f"target_pct_{i}" for i in range(17)]
-
 # LONG_FEATURES += EOD_FEATURES
 
 # print (len(TIME_FEATURES), len(TA_FEATURES))
@@ -110,6 +109,8 @@ def load_data(load_from_db=False,
     """
     Load dữ liệu từ database hoặc từ CSV. Sau đó merge với dữ liệu EOD (chỉ số kết phiên hôm trước).
     """
+    data_source = csv_path if not load_from_db else "Database"
+    print(f"Loading data from {data_source}")
     if load_from_db:
         # Lấy engine từ database_utils
         engine = get_engine()
@@ -290,6 +291,61 @@ class FinancialDataset(Dataset):
                 torch.tensor(self.close_prices[idx], dtype=torch.long)
                 )
 
+class SequenceFinancialDataset(Dataset):
+    def __init__(self, data: pd.DataFrame, selected_long_features=LONG_FEATURES, window_size: int = 60, seq_length: int = 1000, step_minutes=STEP_MINUTES):
+        self.data = data
+        self.window_size = window_size
+        self.seq_length = seq_length
+        self.selected_long_features = selected_long_features
+        self.prepare_sequence_data()
+
+    def prepare_sequence_data(self):
+        time_data = pd.to_datetime(self.data["time"])
+        # ✅ Chỉ giữ các mốc thời gian cách nhau STEP_MINUTES từ đầu phiên
+        start_of_session = time_data.dt.normalize() + pd.Timedelta(hours=START_HOUR)
+        # valid_indices = (time_data - start_of_session).dt.total_seconds() % (step_minutes * 60) == 0
+        valid_indices = np.ones(len(time_data), dtype=bool)  # Giữ tất cả các mốc thời gian
+        filtered_indices = np.where(valid_indices)[0]  # Lấy index của các điểm cần dự báo
+
+        self.X_short_term = []
+        short_term_features = self.data[SHORT_FEATURES].values
+        for i in filtered_indices:
+            # ✅ Lấy cửa sổ dữ liệu `window_size` bước về trước cho short-term features
+            start_idx = max(0, i - self.window_size + 1)
+            short_term_window = short_term_features[start_idx:i + 1]
+            # Nếu thiếu dữ liệu ở đầu, pad bằng 0
+            if len(short_term_window) < self.window_size:
+                pad_length = self.window_size - len(short_term_window)
+                short_term_window = np.pad(short_term_window, ((pad_length, 0), (0, 0)), mode='constant')
+            # Lưu lại các giá trị vào danh sách
+            self.X_short_term.append(short_term_window)
+
+        self.X_long_term = self.data[self.selected_long_features].iloc[valid_indices]
+        self.labels = self.data.filter(regex=r"^target_\d+$").map(self.standard_label)
+        self.y = self.data.filter(regex=r"^target_close_\d+$").iloc[valid_indices]
+        self.masks = self.data.filter(regex=r"^target_\d+$").iloc[valid_indices]
+        self.percentages = self.data.filter(regex=r"^target_pct_\d+$").iloc[valid_indices]
+        self.trade_dates = self.data["trade_date_x"].iloc[valid_indices]
+        self.sample_times = self.data["time"].iloc[valid_indices]
+        self.close_prices = self.data["close"].iloc[valid_indices]
+    def standard_label(self, label):
+        if label>1:
+            return 1
+        elif label<-1:
+            return -1
+        return label
+
+    def __len__(self):
+        return len(self.data)-self.seq_length
+    
+    def __getitem__(self, index):
+        return torch.tensor(np.array(self.X_short_term[index:index+self.seq_length]), dtype=torch.float32), \
+                torch.tensor(self.X_long_term.iloc[index:index+self.seq_length].values, dtype=torch.float32), \
+                torch.tensor(self.y.iloc[index:index+self.seq_length].values, dtype=torch.float32), \
+                torch.tensor(self.masks.iloc[index:index+self.seq_length].values, dtype=torch.float32), \
+                torch.tensor(self.percentages.iloc[index:index+self.seq_length].values, dtype=torch.float32), \
+                torch.tensor(self.labels[index:index+self.seq_length].values, dtype=torch.long), \
+                torch.tensor(self.close_prices.iloc[index:index+self.seq_length].values, dtype=torch.long)
 
 ##############################################
 # Scaling
@@ -307,66 +363,58 @@ def compute_scalers(train_dataset):
 
     return {'short_term': short_term_scaler, 'long_term': long_term_scaler}
 
+def fit_min_max_scalers(train_df: pd.DataFrame, scaler_path: str='min_max_scaler.pkl'):
+    long_term_scaler = MinMaxScaler()
+    long_term_scaler.fit(train_df[LONG_FEATURES])
+    folder_path = 'scalers'
+    os.makedirs(folder_path, exist_ok=True)
+    joblib.dump(long_term_scaler, os.path.join(folder_path, scaler_path))
+    return long_term_scaler
+
+def transform_min_max_scalers(df: pd.DataFrame, scaler_path: str='scaler/min_max_scaler.pkl'):
+    scaler = joblib.load(scaler_path)
+    return pd.DataFrame(scaler.transform(df[LONG_FEATURES]), index=df.index, columns=df.columns)
+
 ##############################################
 # Load Train/Val/Test
 ##############################################
-def get_train_val_test():
+def get_train_val_test(num_train_day: int=120, num_val_day: int=30, num_test_day: int=30, seq_length:int =1000):
     # data = pd.read_csv('D:\Quant_Prj_Goline\processed_data\OHLC_VN30F1M_processed.csv')
     # data = pd.read_csv('../../data/all_data.csv')
     # data = pd.read_csv('../../data/all_data.csv', nrows=1000)
 
-    data = load_data(load_from_db=False, csv_path="data/all_data.csv")
+    data = load_data(load_from_db=False, csv_path="data/all_data.csv") #pandas dataframe
     # data = load_data(load_from_db=False)
-
-    # Fill NaN values with 0
     data.fillna(0, inplace=True)
+    zero_cols = data[LONG_FEATURES].columns[data[LONG_FEATURES].sum(axis=0)==0].tolist()
 
-    dataset = FinancialDataset(data, window_size=30)
+    SELECTED_LONG_FEATURES = list(filter(lambda nonzero: nonzero not in zero_cols, LONG_FEATURES))
+    print(SELECTED_LONG_FEATURES)
+    if 'time' in data.columns:
+        data.index = pd.to_datetime(data['time'])
+    last_date = data.index[-1]
+    test_start_date = last_date - timedelta(days=num_test_day)
+    val_start_date = test_start_date - timedelta(days=num_val_day)
+    train_start_date = val_start_date - timedelta(days=num_train_day)
 
-    all_dates = sorted(set(pd.to_datetime(dataset.sample_dates, errors='coerce').dropna()))
+    train_df = data.loc[train_start_date: val_start_date]
+    val_df = data.loc[val_start_date: test_start_date]  
+    test_df = data.loc[test_start_date:]
+    #data_preprocessing
+    scaler = fit_min_max_scalers(train_df)
+    train_df.loc[:,LONG_FEATURES] = pd.DataFrame(scaler.transform(train_df.loc[:,LONG_FEATURES]), index=train_df.index, columns=train_df[LONG_FEATURES].columns)
+    val_df.loc[:,LONG_FEATURES] = pd.DataFrame(scaler.transform(val_df.loc[:,LONG_FEATURES]), index=val_df.index, columns=val_df[LONG_FEATURES].columns)
+    test_df.loc[:,LONG_FEATURES] = pd.DataFrame(scaler.transform(test_df.loc[:,LONG_FEATURES]), index=test_df.index, columns=test_df[LONG_FEATURES].columns)
 
-    last_date = pd.to_datetime(all_dates[-1])
-    first_date = pd.to_datetime(all_dates[0])
+    train_dataset = SequenceFinancialDataset(train_df, selected_long_features=SELECTED_LONG_FEATURES)
+    val_dataset = SequenceFinancialDataset(val_df, selected_long_features=SELECTED_LONG_FEATURES)
+    test_dataset = SequenceFinancialDataset(test_df, selected_long_features=SELECTED_LONG_FEATURES)
 
-    test_length = timedelta(days=30)
-    test_start_date = last_date - test_length + timedelta(days=1)
+    print(f"Train: From {train_start_date} to {val_start_date} ({num_train_day} days)")
+    print(f"Validation: {val_start_date} to {test_start_date} ({num_val_day} days)") 
+    print(f"Test: {test_start_date} to {last_date} ({num_test_day} days)")
 
-    val_length = timedelta(days=30)
-    val_start_date = test_start_date - val_length
-
-    train_length = timedelta(days=18000)
-    train_start_date = val_start_date - train_length
-
-    train_dates = [date for date in all_dates if train_start_date <= pd.to_datetime(date) < val_start_date]
-    val_dates = [date for date in all_dates if val_start_date <= pd.to_datetime(date) < test_start_date]
-    test_dates = [date for date in all_dates if pd.to_datetime(date) >= test_start_date]
-
-    train_indices = [i for i, d in enumerate(dataset.sample_dates) if d in train_dates]
-    val_indices = [i for i, d in enumerate(dataset.sample_dates) if d in val_dates]
-    test_indices = [i for i, d in enumerate(dataset.sample_dates) if d in test_dates]
-
-    train_dataset = Subset(dataset, train_indices)
-    val_dataset = Subset(dataset, val_indices)
-    test_dataset = Subset(dataset, test_indices)
-
-    # scaler = compute_scalers(train_dataset)
-    #
-    # # Save scaler to scaler.pkl
-    # # Save scalers to a file
-    # joblib.dump(scaler, "scaler.pkl")
-    # print("✅ Scalers saved to scaler.pkl")
-    #
-    # dataset.scale_data(scaler)
-
-    train_dataset = Subset(dataset, train_indices)
-    val_dataset = Subset(dataset, val_indices)
-    test_dataset = Subset(dataset, test_indices)
-
-    print(f"Train: {train_dates[0]} to {train_dates[-1]} ({len(train_dates)} days)")
-    print(f"Validation: {val_dates[0]} to {val_dates[-1]} ({len(val_dates)} days)") 
-    print(f"Test: {test_dates[0]} to {test_dates[-1]} ({len(test_dates)} days)")
-
-    return dataset, train_dataset, val_dataset, test_dataset, train_indices, val_indices, test_indices
+    return data, train_dataset, val_dataset, test_dataset, '', '', ''
 
 
 def apply_pca_auto(train_dataset, val_dataset, test_dataset, variance_threshold=0.95, save_path="pca.pkl"):

@@ -9,12 +9,12 @@ from dataset import TARGET_LENGTH, get_train_val_test
 from regression_model import *
 from classification_model import *
 from svm import *
+from bigru_lstm import BiGRU_LSTM_Clasiifier
 def train_model(model_name):
     ##############################################
     # 1. Load Data
     ##############################################
     _, train_dataset, val_dataset, test_dataset, _, _, _ = get_train_val_test()
-    
     # Mô hình
     model_classes = {
         "lstm": LSTMQuantileRegressor,
@@ -24,7 +24,8 @@ def train_model(model_name):
         "rnn": RNNQuantileRegressor,
         "dfae": DeepFeedforwardRegressor,
         "xgboost_classifier": XGBoostClassifier,
-        "svm": SVMClassifier
+        "svm": SVMClassifier,
+        "bigru_lstm": BiGRU_LSTM_Clasiifier,
     }
     
     if model_name not in model_classes:
@@ -40,9 +41,9 @@ def train_model(model_name):
 
 
 if __name__ == "__main__":
-    # parser = argparse.ArgumentParser(description="Train a quantile regression model.")
-    # parser.add_argument("--model", type=str, required=True,help="Model type:lstm, gru, cnn, rnn , dfae")
-    # args = parser.parse_args()
-    model_name = "svm"
-    train_model(model_name)
+    parser = argparse.ArgumentParser(description="Train a quantile regression model.")
+    parser.add_argument("--model", type=str, required=True,help="Model type:lstm, gru, cnn, rnn , dfae")
+    args = parser.parse_args()
+    # model_name = "bigru_lstm"
+    train_model(args.model)
 
