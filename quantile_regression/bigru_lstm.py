@@ -60,52 +60,53 @@ if __name__=="__main__":
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     model.to(device)
     progress_bar = tqdm(range(num_epochs))
-    for idx in range(17):
-        model.train()
-        print(f"Training Model for label target_{idx}")
-        running_loss = 0.0
-        total_batch = len(train_loader)
-        for epoch in progress_bar:
-            for batch_idx, (x_short, x_long, y, masks, percentages, labels, close_price) in enumerate(train_loader):
-                x_long = x_long.to(device)
-                labels = labels.to(device)
-                # print(f"Epoch {epoch} Batch {batch_idx}/{total_batch}")
-                out = model(x_long)
-                loss = criterion(out[:, -1], labels[:, -1, idx]+1)
-                optimizer.zero_grad()
-                loss.backward()
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1)
-                optimizer.step()
-                running_loss += loss.item()
-            epoch_loss = running_loss/(batch_idx+1)
-            running_loss=0
-            progress_bar.set_postfix(loss=f"{epoch_loss:.4f}")
-            if epoch%5 == 0:
-                #Saving Model each 5 epochs
-                os.makedirs("exps", exist_ok=True)
-                joblib.dump(model, f"exps/bigru_lstm_epoch{epoch}.pkl")
-        model.eval()
-        with torch.no_grad():
-            print("Validating...")
-            total_true = 0
-            num_samples = 0
-            all_preds = []
-            all_labels = []
-            for x_short, x_long, y, masks, percentages, labels, close_price in val_loader:
-                x_long = x_long.to(device)
-                labels = labels.to(device)
-                out = model(x_long)
-                loss = criterion(out[:, -1], labels[:, -1, idx]+1)
-                preds = torch.argmax(out[:, -1], dim=1)
-                total_true +=(preds==labels[:, -1, idx]+1).sum().item()
-                num_samples += len(labels)
-                all_preds.extend(preds.cpu().numpy())
-                all_labels.extend(labels.cpu().numpy())
-            # pre = precision_score(preds, labels[:, -1, idx]+1)
-            # recall = recall_score(preds)
-            print(f"(Validate) Accuracy {total_true/num_samples:.2f}")
-            print(f"(Validate) Precision {precision_score(all_labels, all_preds):.2f}")
-            print(f"(Validate) Recall {recall_score(all_labels, all_preds):.2f}")
+    # for idx in range(17):
+    #     model.train()
+    #     print(f"Training Model for label target_{idx}")
+    #     running_loss = 0.0
+    #     total_batch = len(train_loader)
+    #     for epoch in progress_bar:
+    #         for batch_idx, (x_short, x_long, y, masks, percentages, labels, close_price) in enumerate(train_loader):
+    #             x_long = x_long.to(device)
+    #             labels = labels.to(device)
+    #             # print(f"Epoch {epoch} Batch {batch_idx}/{total_batch}")
+    #             out = model(x_long)
+    #             loss = criterion(out[:, -1], labels[:, -1, idx]+1)
+    #             optimizer.zero_grad()
+    #             loss.backward()
+    #             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1)
+    #             optimizer.step()
+    #             running_loss += loss.item()
+    #         epoch_loss = running_loss/(batch_idx+1)
+    #         running_loss=0
+    #         progress_bar.set_postfix(loss=f"{epoch_loss:.4f}")
+    #         if epoch%5 == 0:
+    #             #Saving Model each 5 epochs
+    #             os.makedirs("exps", exist_ok=True)
+    #             joblib.dump(model, f"exps/bigru_lstm_epoch{epoch}.pkl")
+    model = joblib.load('/home/huyonic/Documents/Stock_Market_Prediction/exps/bigru_lstm_epoch195.pkl')
+    model.eval()
+    with torch.no_grad():
+        print("Validating...")
+        total_true = 0
+        num_samples = 0
+        all_preds = []
+        all_labels = []
+        for x_short, x_long, y, masks, percentages, labels, close_price in val_loader:
+            x_long = x_long.to(device)
+            labels = labels.to(device)
+            out = model(x_long)
+            loss = criterion(out[:, -1], labels[:, -1, 0]+1)
+            preds = torch.argmax(out[:, -1], dim=1)
+            total_true +=(preds==labels[:, -1, 0]+1).sum().item()
+            num_samples += len(labels)
+            all_preds.extend(preds.cpu().numpy())
+            all_labels.extend(labels.cpu().numpy())
+        # pre = precision_score(preds, labels[:, -1, idx]+1)
+        # recall = recall_score(preds)
+        print(f"(Validate) Accuracy {total_true/num_samples:.2f}")
+        print(f"(Validate) Precision {precision_score(all_labels, all_preds, average='macro'):.2f}")
+        print(f"(Validate) Recall {recall_score(all_labels, all_preds, average='macro'):.2f}")
 
                 # : Precision {pre:.2f} : Recall {recall:.2f}")
 

@@ -362,7 +362,7 @@ def compute_scalers(train_dataset):
 
     return {'short_term': short_term_scaler, 'long_term': long_term_scaler}
 
-def fit_min_max_scalers(train_df: pd.DataFrame, scaler_path='min_max_scaler.pkl'):
+def fit_min_max_scalers(train_df: pd.DataFrame, scaler_path: str='min_max_scaler.pkl'):
     long_term_scaler = MinMaxScaler()
     long_term_scaler.fit(train_df[LONG_FEATURES])
     folder_path = 'scalers'
@@ -370,7 +370,7 @@ def fit_min_max_scalers(train_df: pd.DataFrame, scaler_path='min_max_scaler.pkl'
     joblib.dump(long_term_scaler, os.path.join(folder_path, scaler_path))
     return long_term_scaler
 
-def transform_min_max_scalers(df: pd.DataFrame, scaler_path='scaler/min_max_scaler.pkl'):
+def transform_min_max_scalers(df: pd.DataFrame, scaler_path: str='scaler/min_max_scaler.pkl'):
     scaler = joblib.load(scaler_path)
     return pd.DataFrame(scaler.transform(df[LONG_FEATURES]), index=df.index, columns=df.columns)
 
