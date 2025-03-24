@@ -110,6 +110,8 @@ def load_data(load_from_db=False,
     """
     Load dữ liệu từ database hoặc từ CSV. Sau đó merge với dữ liệu EOD (chỉ số kết phiên hôm trước).
     """
+    data_source = csv_path if not load_from_db else "Database"
+    print(f"Loading data from {data_source}")
     if load_from_db:
         # Lấy engine từ database_utils
         engine = get_engine()

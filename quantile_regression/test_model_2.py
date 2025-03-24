@@ -26,7 +26,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 #
 # model = XGBoostClassificationModel.load_model("best_classification_model.pkl").to(device)
 
-model = SVMClassifier.load_model("best_svm_model.pkl").to(device)
+model = LightGBMClassifier.load_model("best_lgb_model_2.pkl").to(device)
 # model = XGBoostClassifier.load_model("best_model.pkl").to(device)
 model.eval()
 
@@ -47,8 +47,8 @@ test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=Fa
 # # model.evaluate(dataset, train_indices)
 model.evaluate(dataset, val_indices)
 model.evaluate(dataset, test_indices)
-# model.evaluate_high_confidence(dataset, val_indices)
-# model.evaluate_high_confidence(dataset, test_indices)
+model.evaluate_high_confidence(dataset, val_indices)
+model.evaluate_high_confidence(dataset, test_indices)
 exit()
 
 # # Print classification report:
