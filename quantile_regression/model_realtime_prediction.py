@@ -15,7 +15,7 @@ from quantile_regression.bigru_lstm import BiGRU_LSTM_Clasiifier
 # Get dataset path
 dataset_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../dataset"))
 sys.path.append(dataset_path)
-from dataset import FinancialDataset, load_data, STEP_MINUTES, SequenceFinancialDataset
+from dataset import FinancialDataset, load_data, SequenceFinancialDataset, LONG_FEATURES, STEP_MINUTES
 #ALl features below will be use for Huy's model
 SELECTED_LONG_FEATURES = ['f45', 'f48', 'f47', 'f39', 'f40', 'f41', 'f42', 'f43', 'f6', 
                           'f7', 'f8', 'f9', 'f10', 'f13', 'f14', 'f15', 
@@ -54,7 +54,7 @@ model_configs = {
     # }
     "bigru_lstm": {
         "path": "exps/bigru_lstm_all_models.pt",
-        "class": BiGRU_LSTM_Clasiifier,
+        "class": BiGRU_LSTM_Clasiifier(),
         "scaler": "min_max_scaler.pkl"
     }
 }
@@ -84,21 +84,23 @@ CHECK_WINDOW_MINUTES = 5
 
 def get_unpredicted_data(start_date, end_date, model_name):
     """ Fetch dữ liệu mới chưa được dự đoán từ database trong khoảng ngày"""
-    df = load_data(load_from_db=False, table_name="der_1m_feature",
+    load_from_db = False
+    df = load_data(load_from_db=load_from_db, table_name="der_1m_feature",
                    eod_table="der_1d_feature", der_1m_table="der_1m",
-                   save_to_file=False, start_date=start_date, end_date=end_date)
+                   save_to_file=False, start_date=start_date, end_date=end_date,
+                   csv_path="data/all_data.csv")
+    if load_from_db:
+        query = f'''
+            SELECT trade_date, "time"
+            FROM public.der_model_output
+            WHERE trade_date BETWEEN '{start_date}' AND '{end_date}' AND model_name = '{model_name}'
+        '''
 
-    query = f'''
-        SELECT trade_date, "time"
-        FROM public.der_model_output
-        WHERE trade_date BETWEEN '{start_date}' AND '{end_date}' AND model_name = '{model_name}'
-    '''
+        with engine.connect() as conn:
+            predicted_df = pd.read_sql(text(query), conn)
 
-    with engine.connect() as conn:
-        predicted_df = pd.read_sql(text(query), conn)
-
-    df = df.merge(predicted_df, on=["trade_date", "time"], how="left", indicator=True)
-    df = df[df["_merge"] == "left_only"].drop(columns=["_merge"])
+        df = df.merge(predicted_df, on=["trade_date", "time"], how="left", indicator=True)
+        df = df[df["_merge"] == "left_only"].drop(columns=["_merge"])
 
     return df
 
@@ -192,26 +194,22 @@ def lstm_predict_and_save(df, model_name, model):
     if df.shape[0] == 0:
         print(f"✅ No new data to predict for {model_name}.")
         return
-    df = df[SELECTED_LONG_FEATURES]
     df.fillna(0, inplace=True)
     scaler = joblib.load("scalers/min_max_scaler.pkl")
-    df = scaler.transform(df) 
-    dataset = SequenceFinancialDataset(df)
+    df[LONG_FEATURES] =  pd.DataFrame(scaler.transform(df[LONG_FEATURES]), index=df.index, columns=LONG_FEATURES)
+    dataset = SequenceFinancialDataset(df, selected_long_features=SELECTED_LONG_FEATURES, seq_length=np.inf)
 
     # scaler = joblib.load(model_configs[model_name]["scaler"])
 
-    dataloader = torch.utils.data.DataLoader(df, batch_size=1, shuffle=False)
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=False)
     results = []
     for idx, (x_short, x_long, _, _, _, _, _) in enumerate(dataloader):
         x_short, x_long = x_short.to(device), x_long.to(device)
-
-         # trade_date = int(df.iloc[idx]['trade_date'])
-        trade_date = int(dataset.trade_dates[idx])
-
+        trade_date = int(df.iloc[idx]['trade_date'])
         timestamp = pd.to_datetime(dataset.sample_times[idx])
         close = dataset.close_prices[idx]
         time_frame = 15
-
+        print(x_long.size())
         with torch.no_grad():
             _, preds, probs = model(x_short, x_long)
 
@@ -273,8 +271,8 @@ def lstm_predict_and_save(df, model_name, model):
 ##############################################
 def main():
     parser = argparse.ArgumentParser(description="Run model predictions within a date range.")
-    parser.add_argument("--start_date", type=int, help="Start date in YYYYMMDD format")
-    parser.add_argument("--end_date", type=int, help="End date in YYYYMMDD format")
+    parser.add_argument("--start_date", default=20250101, type=int, help="Start date in YYYYMMDD format")
+    parser.add_argument("--end_date", default=20250201, type=int, help="End date in YYYYMMDD format")
     args = parser.parse_args()
 
     while True:

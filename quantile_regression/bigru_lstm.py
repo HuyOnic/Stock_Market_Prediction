@@ -143,18 +143,7 @@ class BiGRU_LSTM_Clasiifier():
         x_long: new x long data
         """
         self.load_model()
-        if model_name.lower()=="bigru_lstm":
-            input_size = x_long.size(1)
-            hidden_bigru_size=100
-            hidden_lstm1_size=100 
-            hidden_lstm2_size=50
-            num_class=3 # Output size
-            model = BiGRU_LSTM(model = BiGRU_LSTM(input_size=input_size,
-                            hidden_bigru_size=hidden_bigru_size,
-                            hidden_lstm1_size=hidden_lstm1_size,
-                            hidden_lstm2_size=hidden_lstm2_size,
-                            output_size=num_class))
-        model = self.models[0]["weights"]
+        model = self.models[0]
         num_new_data = x_long.size(0) # Get index form trainset to start slicing
         # last_x_long = train_dataset[len(train_dataset)][1] # idex-1 to get last item in df,  index 1 is x_long
         sliced_x_long = self.past_x_long[:len(self.past_x_long)-num_new_data]

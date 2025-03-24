@@ -347,15 +347,15 @@ class SequenceFinancialDataset(Dataset):
                     torch.tensor(self.y.iloc[index:index+self.seq_length].values, dtype=torch.float32), \
                     torch.tensor(self.masks.iloc[index:index+self.seq_length].values, dtype=torch.float32), \
                     torch.tensor(self.percentages.iloc[index:index+self.seq_length].values, dtype=torch.float32), \
-                    torch.tensor(self.labels[index:index+self.seq_length].values, dtype=torch.long), \
+                    torch.tensor(self.labels.iloc[index:index+self.seq_length].values, dtype=torch.long), \
                     torch.tensor(self.close_prices.iloc[index:index+self.seq_length].values, dtype=torch.long)
         return torch.tensor(np.array(self.X_short_term[index]), dtype=torch.float32), \
                 torch.tensor(self.X_long_term.iloc[index].values, dtype=torch.float32), \
                 torch.tensor(self.y.iloc[index].values, dtype=torch.float32), \
                 torch.tensor(self.masks.iloc[index].values, dtype=torch.float32), \
                 torch.tensor(self.percentages.iloc[index].values, dtype=torch.float32), \
-                torch.tensor(self.labels[index].values, dtype=torch.long), \
-                torch.tensor(self.close_prices.iloc[index].values, dtype=torch.long)
+                torch.tensor(self.labels.iloc[index].values, dtype=torch.long), \
+                torch.tensor(self.close_prices.iloc[index], dtype=torch.long)
 
 ##############################################
 # Scaling
@@ -399,7 +399,6 @@ def get_train_val_test(num_train_day: int=120, num_val_day: int=30, num_test_day
     zero_cols = data[LONG_FEATURES].columns[data[LONG_FEATURES].sum(axis=0)==0].tolist()
 
     SELECTED_LONG_FEATURES = list(filter(lambda nonzero: nonzero not in zero_cols, LONG_FEATURES))
-    print(SELECTED_LONG_FEATURES)
     if 'time' in data.columns:
         data.index = pd.to_datetime(data['time'])
     last_date = data.index[-1]
