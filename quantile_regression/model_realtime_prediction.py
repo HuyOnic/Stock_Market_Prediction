@@ -58,7 +58,6 @@ model_configs = {
         "scaler": "min_max_scaler.pkl"
     }
 }
-print(model_configs["bigru_lstm"]["class"])
 models = {
     model_name: config["class"]
     for model_name, config in model_configs.items()
@@ -85,7 +84,7 @@ CHECK_WINDOW_MINUTES = 5
 
 def get_unpredicted_data(start_date, end_date, model_name):
     """ Fetch dữ liệu mới chưa được dự đoán từ database trong khoảng ngày"""
-    df = load_data(load_from_db=True, table_name="der_1m_feature",
+    df = load_data(load_from_db=False, table_name="der_1m_feature",
                    eod_table="der_1d_feature", der_1m_table="der_1m",
                    save_to_file=False, start_date=start_date, end_date=end_date)
 
@@ -190,20 +189,18 @@ def lstm_predict_and_save(df, model_name, model):
     if df.empty:
         print(f"✅ No new data to predict for {model_name}.")
         return
-
-    df.fillna(0, inplace=True)
-    # scaler = joblib.load("scalers/min_max_scaler.pkl")
-    # df = df[SELECTED_LONG_FEATURES]
-    # df = scaler.transform(df) 
-    dataset = SequenceFinancialDataset(df, selected_long_features=SELECTED_LONG_FEATURES)
     if df.shape[0] == 0:
         print(f"✅ No new data to predict for {model_name}.")
-    #     return
+        return
+    df = df[SELECTED_LONG_FEATURES]
+    df.fillna(0, inplace=True)
+    scaler = joblib.load("scalers/min_max_scaler.pkl")
+    df = scaler.transform(df) 
+    dataset = SequenceFinancialDataset(df)
+
     # scaler = joblib.load(model_configs[model_name]["scaler"])
-    
 
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=False)
-
+    dataloader = torch.utils.data.DataLoader(df, batch_size=1, shuffle=False)
     results = []
     for idx, (x_short, x_long, _, _, _, _, _) in enumerate(dataloader):
         x_short, x_long = x_short.to(device), x_long.to(device)

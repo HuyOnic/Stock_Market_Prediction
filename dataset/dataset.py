@@ -336,16 +336,26 @@ class SequenceFinancialDataset(Dataset):
         return label
 
     def __len__(self):
-        return len(self.data)-self.seq_length
+        if len(self.data)>self.seq_length: 
+            return len(self.data)-self.seq_length
+        return len(self.data)
     
     def __getitem__(self, index):
-        return torch.tensor(np.array(self.X_short_term[index:index+self.seq_length]), dtype=torch.float32), \
-                torch.tensor(self.X_long_term.iloc[index:index+self.seq_length].values, dtype=torch.float32), \
-                torch.tensor(self.y.iloc[index:index+self.seq_length].values, dtype=torch.float32), \
-                torch.tensor(self.masks.iloc[index:index+self.seq_length].values, dtype=torch.float32), \
-                torch.tensor(self.percentages.iloc[index:index+self.seq_length].values, dtype=torch.float32), \
-                torch.tensor(self.labels[index:index+self.seq_length].values, dtype=torch.long), \
-                torch.tensor(self.close_prices.iloc[index:index+self.seq_length].values, dtype=torch.long)
+        if len(self.data)>self.seq_length:
+            return torch.tensor(np.array(self.X_short_term[index:index+self.seq_length]), dtype=torch.float32), \
+                    torch.tensor(self.X_long_term.iloc[index:index+self.seq_length].values, dtype=torch.float32), \
+                    torch.tensor(self.y.iloc[index:index+self.seq_length].values, dtype=torch.float32), \
+                    torch.tensor(self.masks.iloc[index:index+self.seq_length].values, dtype=torch.float32), \
+                    torch.tensor(self.percentages.iloc[index:index+self.seq_length].values, dtype=torch.float32), \
+                    torch.tensor(self.labels[index:index+self.seq_length].values, dtype=torch.long), \
+                    torch.tensor(self.close_prices.iloc[index:index+self.seq_length].values, dtype=torch.long)
+        return torch.tensor(np.array(self.X_short_term[index]), dtype=torch.float32), \
+                torch.tensor(self.X_long_term.iloc[index].values, dtype=torch.float32), \
+                torch.tensor(self.y.iloc[index].values, dtype=torch.float32), \
+                torch.tensor(self.masks.iloc[index].values, dtype=torch.float32), \
+                torch.tensor(self.percentages.iloc[index].values, dtype=torch.float32), \
+                torch.tensor(self.labels[index].values, dtype=torch.long), \
+                torch.tensor(self.close_prices.iloc[index].values, dtype=torch.long)
 
 ##############################################
 # Scaling
