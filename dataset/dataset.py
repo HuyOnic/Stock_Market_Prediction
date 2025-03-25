@@ -179,7 +179,13 @@ def load_data(load_from_db=False,
 
     else:
         # Đọc từ CSV
+        # - Trường hợp load bằng csv vẫn chưa handle date start-end
         df = pd.read_csv(csv_path)
+        df.index = pd.to_datetime(df['time'])
+        start_date = pd.to_datetime(start_date, format="%Y%m%d").normalize()
+        end_date = pd.to_datetime(end_date, format="%Y%m%d").normalize()
+        df = df.loc[start_date: end_date]
+        print(f"All_data: From {df.index[0]} to {df.index[-1]}")
         print(f"✅ Dữ liệu đã load từ CSV: {csv_path}")
 
     return df
@@ -320,14 +326,14 @@ class SequenceFinancialDataset(Dataset):
             # Lưu lại các giá trị vào danh sách
             self.X_short_term.append(short_term_window)
 
-        self.X_long_term = self.data[self.selected_long_features].iloc[valid_indices]
+        self.X_long_term = self.data[self.selected_long_features].iloc[filtered_indices]
         self.labels = self.data.filter(regex=r"^target_\d+$").map(self.standard_label)
-        self.y = self.data.filter(regex=r"^target_close_\d+$").iloc[valid_indices]
-        self.masks = self.data.filter(regex=r"^target_\d+$").iloc[valid_indices]
-        self.percentages = self.data.filter(regex=r"^target_pct_\d+$").iloc[valid_indices]
-        self.trade_dates = self.data["trade_date_x"].iloc[valid_indices]
-        self.sample_times = self.data["time"].iloc[valid_indices]
-        self.close_prices = self.data["close"].iloc[valid_indices]
+        self.y = self.data.filter(regex=r"^target_close_\d+$").iloc[filtered_indices]
+        self.masks = self.data.filter(regex=r"^target_\d+$").iloc[filtered_indices]
+        self.percentages = self.data.filter(regex=r"^target_pct_\d+$").iloc[filtered_indices]
+        self.trade_dates = self.data["trade_date_x"].iloc[filtered_indices]
+        self.sample_times = self.data["time"].iloc[filtered_indices]
+        self.close_prices = self.data["close"].iloc[filtered_indices]
     def standard_label(self, label):
         if label>1:
             return 1
@@ -336,12 +342,12 @@ class SequenceFinancialDataset(Dataset):
         return label
 
     def __len__(self):
-        if len(self.data)>self.seq_length: 
+        if self.seq_length: 
             return len(self.data)-self.seq_length
         return len(self.data)
     
     def __getitem__(self, index):
-        if len(self.data)>self.seq_length:
+        if self.seq_length:
             return torch.tensor(np.array(self.X_short_term[index:index+self.seq_length]), dtype=torch.float32), \
                     torch.tensor(self.X_long_term.iloc[index:index+self.seq_length].values, dtype=torch.float32), \
                     torch.tensor(self.y.iloc[index:index+self.seq_length].values, dtype=torch.float32), \
@@ -399,6 +405,7 @@ def get_train_val_test(num_train_day: int=120, num_val_day: int=30, num_test_day
     zero_cols = data[LONG_FEATURES].columns[data[LONG_FEATURES].sum(axis=0)==0].tolist()
 
     SELECTED_LONG_FEATURES = list(filter(lambda nonzero: nonzero not in zero_cols, LONG_FEATURES))
+    print(SELECTED_LONG_FEATURES)
     if 'time' in data.columns:
         data.index = pd.to_datetime(data['time'])
     last_date = data.index[-1]

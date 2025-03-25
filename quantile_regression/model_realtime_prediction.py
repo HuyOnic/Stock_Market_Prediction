@@ -12,6 +12,8 @@ import joblib
 import json
 import argparse
 from quantile_regression.bigru_lstm import BiGRU_LSTM_Clasiifier
+from datetime import timedelta
+from datetime import datetime as dt
 # Get dataset path
 dataset_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../dataset"))
 sys.path.append(dataset_path)
@@ -35,7 +37,7 @@ SELECTED_LONG_FEATURES = ['f45', 'f48', 'f47', 'f39', 'f40', 'f41', 'f42', 'f43'
 # Load Models
 ##############################################
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
+LSTM_THRESH = 0.80
 model_configs = {
     # "xgboost-clss": {
     #     "path": "checkpoints/xgboost_cls_20250302.pkl",
@@ -52,10 +54,10 @@ model_configs = {
     #     "class": XGBoostClassifier,
     #     "scaler": "checkpoints/scaler_20250304_all_samples_down_0.pkl"
     # }
-    "bigru_lstm": {
+    "bigru_lstm_60f1_thresh8002": {
         "path": "exps/bigru_lstm_all_models.pt",
         "class": BiGRU_LSTM_Clasiifier(),
-        "scaler": "min_max_scaler.pkl"
+        "scaler": "scalers/min_max_scaler.pkl"
     }
 }
 models = {
@@ -84,7 +86,7 @@ CHECK_WINDOW_MINUTES = 5
 
 def get_unpredicted_data(start_date, end_date, model_name):
     """ Fetch dữ liệu mới chưa được dự đoán từ database trong khoảng ngày"""
-    load_from_db = False
+    load_from_db = True
     df = load_data(load_from_db=load_from_db, table_name="der_1m_feature",
                    eod_table="der_1d_feature", der_1m_table="der_1m",
                    save_to_file=False, start_date=start_date, end_date=end_date,
@@ -101,7 +103,6 @@ def get_unpredicted_data(start_date, end_date, model_name):
 
         df = df.merge(predicted_df, on=["trade_date", "time"], how="left", indicator=True)
         df = df[df["_merge"] == "left_only"].drop(columns=["_merge"])
-
     return df
 
 def predict_and_save(df, model_name, model):
@@ -121,7 +122,7 @@ def predict_and_save(df, model_name, model):
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=False)
 
     results = []
-    for idx, (x_short, x_long, _, _, _, _, _) in enumerate(dataloader):
+    for idx, (x_short, x_long, _, _, _, labels, _) in enumerate(dataloader):
         x_short, x_long = x_short.to(device), x_long.to(device)
 
          # trade_date = int(df.iloc[idx]['trade_date'])
@@ -133,10 +134,10 @@ def predict_and_save(df, model_name, model):
         model.eval()
         with torch.no_grad():
             _, preds, probs = model(x_short, x_long)
-
+    
             print(f"🔍 Prediction at {timestamp}: {preds.cpu().numpy()[0]} (Probability: {probs.cpu().numpy()[0]})")
 
-            if probs.cpu().numpy()[0][0] < 0.55:
+            if probs.cpu().numpy()[0][0] < 0.60:
                 continue
 
             CUTOFF_TIME = datetime.datetime.strptime("07:45", "%H:%M").time()
@@ -144,10 +145,10 @@ def predict_and_save(df, model_name, model):
             predictions = [
                 (
                     final_timestamp,
-                    close * (100 + pred) / 100,
+                    close * (100 + (pred/100)) / 100,
                     prob
                 )
-                for i, (pred, prob) in enumerate(zip(preds.cpu().numpy()[0], probs.cpu().numpy()[0]))
+                for i, (pred, prob) in enumerate(zip(preds.cpu().numpy()[0], probs.unsqueeze(0).cpu().numpy()[0]))
                 if (
                     (final_timestamp := timestamp + pd.Timedelta(seconds=(i+1) * STEP_MINUTES * 60))
                 ) and (
@@ -186,7 +187,7 @@ def predict_and_save(df, model_name, model):
             conn.commit()
         print(f"✅ Saved {len(results)} predictions for {model_name} to database.")
 ### 
-def lstm_predict_and_save(df, model_name, model):
+def lstm_predict_and_save(df, model_name, model, start_date):
     """ Dự đoán trên dữ liệu mới và lưu kết quả vào database """
     if df.empty:
         print(f"✅ No new data to predict for {model_name}.")
@@ -195,38 +196,47 @@ def lstm_predict_and_save(df, model_name, model):
         print(f"✅ No new data to predict for {model_name}.")
         return
     df.fillna(0, inplace=True)
-    scaler = joblib.load("scalers/min_max_scaler.pkl")
+    scaler = joblib.load(model_configs[model_name]["scaler"])
     df[LONG_FEATURES] =  pd.DataFrame(scaler.transform(df[LONG_FEATURES]), index=df.index, columns=LONG_FEATURES)
-    dataset = SequenceFinancialDataset(df, selected_long_features=SELECTED_LONG_FEATURES, seq_length=np.inf)
-
+    dataset = SequenceFinancialDataset(df, selected_long_features=SELECTED_LONG_FEATURES, seq_length=0)
     # scaler = joblib.load(model_configs[model_name]["scaler"])
 
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=False)
+    #LOAD 999 minutes before
+    date_obj = datetime.datetime.strptime(str(start_date), "%Y%m%d")
+    five_days_before = date_obj - pd.Timedelta(days=7)
+    fivedays = int(five_days_before.strftime("%Y%m%d"))
+    step_999 = get_unpredicted_data(fivedays, start_date, model_name).iloc[-1000:]
+    step_999 = pd.DataFrame(scaler.transform(step_999[LONG_FEATURES]), index=step_999.index, columns=LONG_FEATURES)
+    step_999 = step_999[SELECTED_LONG_FEATURES].fillna(0)
     results = []
-    for idx, (x_short, x_long, _, _, _, _, _) in enumerate(dataloader):
+    model.load_model()
+    model.past_x_long = torch.tensor(step_999.values, dtype=torch.float32)
+    for idx, (x_short, x_long, _, _, _, label, _) in enumerate(dataloader):
         x_short, x_long = x_short.to(device), x_long.to(device)
-        trade_date = int(df.iloc[idx]['trade_date'])
-        timestamp = pd.to_datetime(dataset.sample_times[idx])
-        close = dataset.close_prices[idx]
+        trade_date = int(df['trade_date'].iloc[idx])
+        timestamp = pd.to_datetime(df['time'].iloc[idx])
+        close = df['close'].iloc[idx]
         time_frame = 15
-        print(x_long.size())
         with torch.no_grad():
-            _, preds, probs = model(x_short, x_long)
+            preds, probs = model(x_short, x_long)
 
-            print(f"🔍 Prediction at {timestamp}: {preds.cpu().numpy()[0]} (Probability: {probs.cpu().numpy()[0]})")
-
-            if probs.cpu().numpy()[0][0] < 0.55:
+            # print(close, "vs", close * (100 + preds.item()) / 100, "offset", close * (100 + preds.item())) / 100 - close)
+   
+            if probs.cpu().numpy() < LSTM_THRESH:
                 continue
+            str_probs = f"{probs*100:.2f}%"
+            print(f"🔍 Prediction at {timestamp}: {preds.cpu().numpy()} vs {label[0][0]}(Probability: {str_probs})")
 
             CUTOFF_TIME = datetime.datetime.strptime("07:45", "%H:%M").time()
 
             predictions = [
                 (
                     final_timestamp,
-                    close * (100 + pred) / 100,
+                    close * (100 + (pred.item()/10)) / 100, # convert torch.tensor(pred) -> pred
                     prob
                 )
-                for i, (pred, prob) in enumerate(zip(preds.cpu().numpy()[0], probs.cpu().numpy()[0]))
+                for i, (pred, prob) in enumerate(zip(preds.unsqueeze(0), probs.unsqueeze(0)))
                 if (
                     (final_timestamp := timestamp + pd.Timedelta(seconds=(i+1) * STEP_MINUTES * 60))
                 ) and (
@@ -271,8 +281,8 @@ def lstm_predict_and_save(df, model_name, model):
 ##############################################
 def main():
     parser = argparse.ArgumentParser(description="Run model predictions within a date range.")
-    parser.add_argument("--start_date", default=20250101, type=int, help="Start date in YYYYMMDD format")
-    parser.add_argument("--end_date", default=20250201, type=int, help="End date in YYYYMMDD format")
+    parser.add_argument("--start_date", default=2025022, type=int, help="Start date in YYYYMMDD format")
+    parser.add_argument("--end_date", default=20250225, type=int, help="End date in YYYYMMDD format")
     args = parser.parse_args()
 
     while True:
@@ -283,9 +293,8 @@ def main():
             end_date = args.end_date if args.end_date else current_date
 
             df_new = get_unpredicted_data(start_date, end_date, model_name)
-
             # predict_and_save(df_new, model_name, model) #for sklearn model
-            lstm_predict_and_save(df_new, model_name, model) # for sequence model (ex: rnn, lstm, gru)
+            lstm_predict_and_save(df_new, model_name, model, start_date) # for sequence model (ex: rnn, lstm, gru)
 
         print("⏳ Waiting for next cycle...")
         time.sleep(60)

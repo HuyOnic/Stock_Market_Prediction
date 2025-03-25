@@ -9,8 +9,10 @@ from sklearn.metrics import precision_score, recall_score, classification_report
 from classification_model import PriceClassifier
 from torch.utils.data import DataLoader
 from dataset import SequenceFinancialDataset, get_train_val_test
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay     
 from tqdm import tqdm
 import joblib
+import matplotlib.pyplot as plt
 
 class BiGRU_LSTM_Clasiifier():
     def __init__(self, from_pretrained: bool=False , output_size: int=1):
@@ -19,7 +21,7 @@ class BiGRU_LSTM_Clasiifier():
         self.num_targets = output_size
         self.models = []
         self.feature_names = None
-        self.past_x_long = None # seq_lenng (ex: 1000) last x_long datapoint from the past 
+        self.past_x_long = torch.zeros(1000, 164) # seq_lenng (ex: 1000) last x_long datapoint from the past 
         self.batch_size=128
         self.device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     def fit(self, train_dataset: SequenceFinancialDataset, 
@@ -130,30 +132,38 @@ class BiGRU_LSTM_Clasiifier():
                 print(f"Precision (Macro): {precision_score(all_labels, all_preds, average='macro'):.2f}")
                 print(f"Recall (Macro): {recall_score(all_labels, all_preds, average='macro'):.2f}")
                 print(f"Precision (Micro): {precision_score(all_labels, all_preds, average='micro'):.2f}")
-                print(f"Recall (Micro): {recall_score(all_labels, all_preds, average='micro'):.2f}")        
+                print(f"Recall (Micro): {recall_score(all_labels, all_preds, average='micro'):.2f}")   
+                cm = confusion_matrix(all_labels, all_preds)
+                os.makedirs("images", exist_ok=True)
+                disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=["Class -1", "Class 0", "Class 1"])
+                disp.plot(cmap=plt.cm.Blues)
+                plt.savefig('images/confusion_matrix.png', dpi=300, bbox_inches='tight')
             break
     def __call__(self, x_short: torch.Tensor ,x_long: torch.Tensor, model_name:str="bigru_lstm"):
-        self.forward(x_short,x_long,model_name)
+        return self.forward(x_short,x_long,model_name)
 
     def forward(self, x_short: torch.Tensor ,x_long: torch.Tensor, model_name:str="bigru_lstm"):
-        ### WARNING: Currently, the model on ly can inference for target 0, the code will be update in the future to help model can inference num_targets
+        ### WARNING: Currently, the model can inference for target 0, the code will be update in the future to help model can inference num_targets
         """"
         args: 
         x_short: new x short data,
         x_long: new x long data
         """
-        self.load_model()
+        # self.load_model()
         model = self.models[0]
+        model.eval()
         num_new_data = x_long.size(0) # Get index form trainset to start slicing
         # last_x_long = train_dataset[len(train_dataset)][1] # idex-1 to get last item in df,  index 1 is x_long
-        sliced_x_long = self.past_x_long[:len(self.past_x_long)-num_new_data]
-        input_data = torch.concat([sliced_x_long, x_long], dim=0)
-        input_data.unsqueeze(0)
-        probs = model(input_data)
-        prediction = torch.argmax(probs[:, -1, :], dim=-1)
-        return "", prediction, probs 
+        self.past_x_long[:-num_new_data] = self.past_x_long[num_new_data:].clone()
+        self.past_x_long[-num_new_data:] = x_long
+        outs = model(self.past_x_long)
+        probs = torch.nn.functional.softmax(outs)
+        prediction = torch.argmax(probs[-1, :], dim=-1)
+        prediction-=1 # standard label
+        return prediction, torch.max(probs[-1, :]) 
     
     def load_model(self, checkpoint_path: str="exps/bigru_lstm_all_models.pt"):
+        print("Loading model from", checkpoint_path)
         checkpoint = torch.load(checkpoint_path, map_location=self.device, weights_only=False)
         self.models = [checkpoint["weights"]]
         # if isinstance(self.models, list):
